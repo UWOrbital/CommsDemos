@@ -11,8 +11,7 @@
 #define PORT 8080
 #define SA struct sockaddr
 
-void func(int sockfd)
-{
+void func(int sockfd) {
     char buff[MAX];
     int n;
     // Infinite loop to continously accept and send messages to the server
@@ -35,39 +34,35 @@ void func(int sockfd)
         }
     }
 }
-   
-int main()
-{    
+
+int main() {
     int sockfd;
     struct sockaddr_in servaddr, cli;
-
 
     // Socket Creation, AF_INET means IPv4 and SOCK_STREAM means TCP Connection
     sockfd = socket(AF_INET, SOCK_STREAM, 0);
     if (sockfd == -1) {
         printf("socket creation failed...\n");
         exit(0);
-    }
-    else
+    } else
         printf("Socket successfully created..\n");
     bzero(&servaddr, sizeof(servaddr));
-   
+
     // assign IP, PORT
     servaddr.sin_family = AF_INET;
     servaddr.sin_addr.s_addr = inet_addr("127.0.0.1");
     servaddr.sin_port = htons(PORT);
-   
+
     // connect the client socket to server socket
     if (connect(sockfd, (SA*)&servaddr, sizeof(servaddr)) != 0) {
         printf("connection with the server failed...\n");
         exit(0);
-    }
-    else
+    } else
         printf("connected to the server..\n");
-   
+
     // function for chat
     func(sockfd);
-   
+
     // close the socket
     close(sockfd);
 }
