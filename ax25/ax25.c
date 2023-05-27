@@ -350,6 +350,8 @@ int main(){
     ax25Packet[AX25_START_FLAG_BYTES + AX25_ADDRESS_BYTES + AX25_CONTROL_BYTES + AX25_PID_BYTES + AX25_INFO_BYTES] = (uint8_t)(fcs >> 8);
     ax25Packet[AX25_START_FLAG_BYTES + AX25_ADDRESS_BYTES + AX25_CONTROL_BYTES + AX25_PID_BYTES + AX25_INFO_BYTES + 1] = (uint8_t)(fcs & 0xFF);
     bit_stuffing(ax25Packet, &stuffedPacket);
+    stuffedPacket.data[0] = AX25_FLAG;
+    stuffedPacket.data[stuffedPacket.length - 1] = AX25_FLAG;
     for(uint16_t i; i < stuffedPacket.length; ++i){
         printf("%x ", stuffedPacket.data[i]);
     }
@@ -359,18 +361,55 @@ int main(){
         printf("%x ", rsData.data[i]);
     }
 }
+/*/* bit stuffing function for ax25 NOT MEANT FOR RECV */
+/* added for testing purposes */
+// void bit_stuffing(uint8_t *unstuffedData, packed_ax25_packet_t *stuffedPacket) {
+//     uint8_t bitCount = 0;
+//     uint8_t stuffingFlag = 0;
+//     uint16_t stuffedLength = AX25_START_FLAG_BYTES*8;
+//     stuffedPacket->data[0] = AX25_FLAG;
+
+//     // loop from second byte to second last byte since first and last are the flags
+//     for (uint16_t unstuffedPacketIndex = 1; unstuffedPacketIndex < RS_ENCODED_SIZE - 1; ++unstuffedPacketIndex) {
+//         uint8_t current_byte = unstuffedData->data[unstuffedPacketIndex];
+
+//         for (uint8_t offset = 0; offset < 8; ++offset) {
+//             uint8_t bit = (current_byte >> (7 - offset)) & 0x01;
+
+//             if (stuffingFlag) {
+//                 bitCount = 0;
+//                 stuffingFlag = 0;
+//                 continue;  // Skip adding the stuffed bit
+//             }
+//             if (bit == 1) {
+//                 bitCount++;
+//                 if (bitCount == 5) {
+//                     bitCount = 0;
+//                     stuffingFlag = 1;
+//                 }
+//             }
+//             else {
+//                 bitCount = 0;
+//             }
+//             unstuffedPacket->data[stuffedLength / 8] |= bit << (7 - (stuffedLength % 8));
+//             stuffedLength++;
+//         }
+//     }
+//     unstuffedPacket->data[AX25_MINIMUM_PKT_LEN - 1] = AX25_FLAG;
+//     stuffedLength += AX25_END_FLAG_BYTES*8;
+//     unstuffedPacket->length = stuffedLength;
+//     printf("length is %u\n", unstuffedPacket->length);
+// }
 
 /* bit stuffing function for ax25 NOT MEANT FOR RECV */
 /* added for testing purposes */
 void bit_stuffing(uint8_t *RAW_DATA, packed_ax25_packet_t *STUFFED_DATA) {
-
+    memset(STUFFED_DATA->data, 0, AX25_MAXIMUM_PKT_LEN);
     size_t RAW_OFFSET = 0, STUFFED_OFFSET = 8, bit_count = 0, one_count = 0;
     uint8_t current_bit;
 
-// Set starting flag
-    memset(STUFFED_DATA->data, AX25_FLAG, 1);
 // Cycle through raw data to find 1s
-    for (RAW_OFFSET = 0; RAW_OFFSET < (274) * 8; ++RAW_OFFSET) {
+    for (RAW_OFFSET = 8; RAW_OFFSET < (274) * 8; ++RAW_OFFSET) {
         current_bit = (RAW_DATA[RAW_OFFSET / 8] >> (7 - (RAW_OFFSET % 8))) & 1;
         STUFFED_DATA->data[STUFFED_OFFSET / 8] |= (current_bit << (7 - (STUFFED_OFFSET % 8)));
         STUFFED_OFFSET++;
