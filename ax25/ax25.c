@@ -104,7 +104,6 @@ void ax25HandleReceiveNotReady(uint8_t *controlBytes);
 void ax25HandleRejected(uint8_t *controlBytes);
 void ax25HandleSelectiveReject(uint8_t *controlBytes);
 unsigned int reverseBits(unsigned int num);
-int main(void);
 
 static const s_frame_func_t sFrameResponseFns[] = {
     [AX25_S_FRAME_RR_CONTROL] = ax25HandleReceiveReady,
@@ -115,11 +114,11 @@ static const s_frame_func_t sFrameResponseFns[] = {
 
 void ax25Recv(packed_ax25_packet_t *ax25Data, packed_rs_packet_t *rsData){
     if(ax25Data == NULL){
-        printf("invalid param");
+        printf("invalid param\n");
         return; /* error code on obc*/
     }
     if(rsData == NULL){
-        printf("invalid param");
+        printf("invalid param\n");
         return; /* error code on obc*/
     }
     if(ax25Data->length > AX25_MAXIMUM_PKT_LEN){
@@ -134,9 +133,10 @@ void ax25Recv(packed_ax25_packet_t *ax25Data, packed_rs_packet_t *rsData){
     // perform bit unstuffing
     unstuffed_ax25_packet_t unstuffedPacket;
     ax25Unstuff(ax25Data, &unstuffedPacket);
-    for(uint16_t i; i < RS_ENCODED_SIZE; ++i){
+    for(uint16_t i = 0; i < AX25_MAXIMUM_PKT_LEN; ++i){
         printf("%x ", unstuffedPacket.data[i]);
     }
+    printf("\n");
 
     bool supervisoryFrameFlag = false;
 
@@ -154,18 +154,63 @@ void ax25Recv(packed_ax25_packet_t *ax25Data, packed_rs_packet_t *rsData){
                                                           AX25_ADDRESS_BYTES + \
                                                           AX25_START_FLAG_BYTES]))
     {
-        printf("Invalid FCS");
+        printf("Invalid FCS\n");
         return; /* error code on OBC */
     }
     supervisoryFrameFlag ? (sFrameRecv(&unstuffedPacket, rsData)) : (iFrameRecv(&unstuffedPacket, rsData));
 }
 
 
+// static void ax25Unstuff(const packed_ax25_packet_t* packet, unstuffed_ax25_packet_t* unstuffedPacket) {
+//     uint8_t bitCount = 0;
+//     uint8_t stuffingFlag = 0;
+//     uint16_t unstuffedLength = AX25_START_FLAG_BYTES*8;
+//     unstuffedPacket->data[0] = AX25_FLAG;
+
+//     // loop from second byte to second last byte since first and last are the flags
+//     for (uint16_t stuffedPacketIndex = 1; stuffedPacketIndex < packet->length - 1; ++stuffedPacketIndex) {
+//         uint8_t current_byte = packet->data[stuffedPacketIndex];
+
+//         for (uint8_t offset = 0; offset < 8; ++offset) {
+//             uint8_t bit = (current_byte >> (7 - offset)) & 0x01;
+
+//             if (stuffingFlag) {
+//                 bitCount = 0;
+//                 stuffingFlag = 0;
+//                 continue;  // Skip adding the stuffed bit
+//             }
+//             if (bit == 1) {
+//                 bitCount++;
+//                 if (bitCount == 5) {
+//                     bitCount = 0;
+//                     stuffingFlag = 1;
+//                 }
+//             }
+//             else {
+//                 bitCount = 0;
+//             }
+//             unstuffedPacket->data[unstuffedLength / 8] |= bit << (7 - (unstuffedLength % 8));
+//             unstuffedLength++;
+//         }
+//     }
+//     unstuffedPacket->data[AX25_MINIMUM_PKT_LEN - 1] = AX25_FLAG;
+//     unstuffedLength += AX25_END_FLAG_BYTES*8;
+//     unstuffedPacket->length = unstuffedLength;
+//     printf("length is %u\n", unstuffedPacket->length);
+// }
+
 static void ax25Unstuff(const packed_ax25_packet_t* packet, unstuffed_ax25_packet_t* unstuffedPacket) {
     uint8_t bitCount = 0;
     uint8_t stuffingFlag = 0;
-    uint16_t unstuffedLength = AX25_START_FLAG_BYTES*8;
+    uint16_t unstuffedLength = 0; // count as bytes
+    uint16_t unstuffedBitLength = 0; // count as bits
+
+    // Clear the unstuffed data
+    memset(unstuffedPacket->data, 0, sizeof(unstuffedPacket->data));
+
+    // Set the first flag
     unstuffedPacket->data[0] = AX25_FLAG;
+    unstuffedBitLength += 8;
 
     // loop from second byte to second last byte since first and last are the flags
     for (uint16_t stuffedPacketIndex = 1; stuffedPacketIndex < packet->length - 1; ++stuffedPacketIndex) {
@@ -179,6 +224,7 @@ static void ax25Unstuff(const packed_ax25_packet_t* packet, unstuffed_ax25_packe
                 stuffingFlag = 0;
                 continue;  // Skip adding the stuffed bit
             }
+
             if (bit == 1) {
                 bitCount++;
                 if (bitCount == 5) {
@@ -189,13 +235,19 @@ static void ax25Unstuff(const packed_ax25_packet_t* packet, unstuffed_ax25_packe
             else {
                 bitCount = 0;
             }
-            unstuffedPacket->data[unstuffedLength / 8] |= bit << (7 - (unstuffedLength % 8));
-            unstuffedLength++;
+            unstuffedPacket->data[unstuffedBitLength / 8] |= bit << (7 - (unstuffedBitLength % 8));
+            unstuffedBitLength++;
         }
     }
-    unstuffedPacket->data[AX25_MINIMUM_PKT_LEN - 1] = AX25_FLAG;
-    unstuffedLength += AX25_END_FLAG_BYTES*8;
+    printf("unstuffedBitLength/8 is %u\n", unstuffedBitLength/8);
+    printf("AX25_MINIMUM_PKT_LEN is %u\n", AX25_MINIMUM_PKT_LEN);
+    // Add last flag
+    unstuffedPacket->data[AX25_MINIMUM_PKT_LEN-1] = AX25_FLAG;
+    unstuffedBitLength += 8;
+
+    unstuffedLength = (unstuffedBitLength + 7) / 8; // convert bits to bytes, rounding up
     unstuffedPacket->length = unstuffedLength;
+
     printf("length is %u\n", unstuffedPacket->length);
 }
 
@@ -352,14 +404,16 @@ int main(){
     bit_stuffing(ax25Packet, &stuffedPacket);
     stuffedPacket.data[0] = AX25_FLAG;
     stuffedPacket.data[stuffedPacket.length - 1] = AX25_FLAG;
-    for(uint16_t i; i < stuffedPacket.length; ++i){
+    for(uint16_t i = 0; i < stuffedPacket.length; ++i){
         printf("%x ", stuffedPacket.data[i]);
     }
+    printf("\n");
     packed_rs_packet_t rsData;
     ax25Recv(&stuffedPacket, &rsData);
-    for(uint16_t i; i < AX25_INFO_BYTES; ++i){
+    for(uint16_t i = 0; i < AX25_INFO_BYTES; ++i){
         printf("%x ", rsData.data[i]);
     }
+    printf("\n");
 }
 /*/* bit stuffing function for ax25 NOT MEANT FOR RECV */
 /* added for testing purposes */
