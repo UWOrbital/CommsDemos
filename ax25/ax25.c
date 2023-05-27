@@ -425,8 +425,6 @@ void bit_stuffing(uint8_t *RAW_DATA, packed_ax25_packet_t *STUFFED_DATA) {
             one_count = 0;
         }
     }
-// Set ending flag
-    memset(STUFFED_DATA->data + (STUFFED_OFFSET/8) + 1, AX25_FLAG, 1);
     STUFFED_DATA->length = (STUFFED_OFFSET/8) + 2;
     printf("bitstuffing: length is %u\n", STUFFED_DATA->length);
 }
