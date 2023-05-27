@@ -1,4 +1,6 @@
 #include <stdint.h>
+#include <stdbool.h>
+#include <stdio.h>
 // for testing purposes only
 #include <string.h>
 
@@ -25,6 +27,7 @@
                       AX25_PID_BYTES +  \
                       AX25_FCS_BYTES)
 
+#define RS_ENCODED_SIZE AX25_INFO_BYTES
 #define AX25_FLAG 0x7EU
 #define AX25_PID 0xF0U
 
@@ -68,7 +71,7 @@ typedef struct {
 typedef struct {
     uint8_t data[AX25_MINIMUM_PKT_LEN];
     uint16_t length;
-} unstuffed_ax25_packet_t
+} unstuffed_ax25_packet_t;
 
 typedef struct {
     uint8_t data[RS_ENCODED_SIZE];
@@ -76,12 +79,6 @@ typedef struct {
 
 typedef void (*s_frame_func_t)(uint8_t*);
 
-static const s_frame_func_t sFrameResponseFns[] = {
-    [AX25_S_FRAME_RR_CONTROL] = ax25HandleReceiveReady,
-    [AX25_S_FRAME_RNR_CONTROL] = ax25HandleReceiveNotReady,
-    [AX25_S_FRAME_REJ_CONTROL] = ax25HandleRejected,
-    [AX25_S_FRAME_SREJ_CONTROL] = ax25HandleSelectiveReject
-};
 
 /**
  * @brief strips away the ax.25 headers from a received packet
@@ -108,6 +105,13 @@ void ax25HandleSelectiveReject(uint8_t *controlBytes);
 unsigned int reverseBits(unsigned int num);
 int main(void);
 
+static const s_frame_func_t sFrameResponseFns[] = {
+    [AX25_S_FRAME_RR_CONTROL] = ax25HandleReceiveReady,
+    [AX25_S_FRAME_RNR_CONTROL] = ax25HandleReceiveNotReady,
+    [AX25_S_FRAME_REJ_CONTROL] = ax25HandleRejected,
+    [AX25_S_FRAME_SREJ_CONTROL] = ax25HandleSelectiveReject
+};
+
 void ax25Recv(packed_ax25_packet_t *ax25Data, packed_rs_packet_t *rsData){
     if(ax25Data == NULL){
         printf("invalid param");
@@ -117,30 +121,30 @@ void ax25Recv(packed_ax25_packet_t *ax25Data, packed_rs_packet_t *rsData){
         printf("invalid param");
         return; /* error code on obc*/
     }
-    if(ax25Data.length > AX25_MAXIMUM_PKT_LEN){
+    if(ax25Data->length > AX25_MAXIMUM_PKT_LEN){
         printf("packet is too large");
         return; /* error code on obc*/
     }
     // check to make sure that the data starts and ends with a valid flag
-    if((ax25Data.data[0] != AX25_FLAG) || (ax25Data.data[ax25Data.length - 1] != AX25_FLAG)){
+    if((ax25Data->data[0] != AX25_FLAG) || (ax25Data->data[ax25Data->length - 1] != AX25_FLAG)){
         printf("incorrect flags");
         return; /* error code on obc */
     }
     // perform bit unstuffing
     unstuffed_ax25_packet_t unstuffedPacket;
-    ax25Unstuff(&ax25Data, &unstuffedPacket);
+    ax25Unstuff(ax25Data, &unstuffedPacket);
 
-    bool supervisoryFrameFlag = false
+    bool supervisoryFrameFlag = false;
 
-    if(unstuffedPacket->length == AX25_SUPERVISORY_FRAME_LENGTH){
+    if(unstuffedPacket.length == AX25_SUPERVISORY_FRAME_LENGTH){
         supervisoryFrameFlag = true;
     }
-    else if (unstuffedPacket->length != AX25_MINIMUM_PKT_LEN){
+    else if (unstuffedPacket.length != AX25_MINIMUM_PKT_LEN){
         printf("Did not unstuff properly");
         return; /* error code */
     }
     // Check FCS
-    if(!fcsCheck(unstuffedPacket->data, unstuffedPacket->data[AX25_INFO_BYTES + \
+    if(!fcsCheck(unstuffedPacket.data, unstuffedPacket.data[AX25_INFO_BYTES + \
                                                           AX25_PID_BYTES + \
                                                           AX25_CONTROL_BYTES + \
                                                           AX25_ADDRESS_BYTES + \
@@ -180,7 +184,7 @@ static void ax25Unstuff(const packed_ax25_packet_t* packet, unstuffed_ax25_packe
             else {
                 bitCount = 0;
             }
-            unstuffedPacket.data[unstuffedLength / 8] |= bit << (7 - (unstuffedLength % 8));
+            unstuffedPacket->data[unstuffedLength / 8] |= bit << (7 - (unstuffedLength % 8));
             unstuffedLength++;
         }
     }
@@ -196,7 +200,7 @@ static void iFrameRecv(unstuffed_ax25_packet_t *unstuffedPacket, packed_rs_packe
     // next control byte will be immediately after the previous one
     // See AX.25 standard
     uint8_t controlBytes[AX25_CONTROL_BYTES] = {unstuffedPacket->data[AX25_ADDRESS_BYTES + AX25_START_FLAG_BYTES], \
-                                                unstuffedPacket->data[AX25_ADDRESS_BYTES + AX25_START_FLAG_BYTES + 1]}
+                                                unstuffedPacket->data[AX25_ADDRESS_BYTES + AX25_START_FLAG_BYTES + 1]};
     // LSB should be 0 for a valid I frame
     if(controlBytes[0] & 0x01){
         printf("invalid control field");
@@ -205,14 +209,14 @@ static void iFrameRecv(unstuffed_ax25_packet_t *unstuffedPacket, packed_rs_packe
     if((controlBytes[0] >> 1) != pktReceiveNum){
         // TODO: implement retransmission requests
     }
-    if(cotrolBytes[1] & 0x01){
+    if(controlBytes[1] & 0x01){
         // TODO: implement retransmissions
     }
-    if((controlBytes[1] >> 1) != pktSendNum){
+    if((controlBytes[1] >> 1) != pktSentNum){
         // TODO: implement retransmissions
     }
     
-    if(unstuffedPacket[AX25_CONTROL_BYTES + AX25_ADDRESS_BYTES + 1] != AX25_PID){
+    if(unstuffedPacket->data[AX25_CONTROL_BYTES + AX25_ADDRESS_BYTES + 1] != AX25_PID){
         printf("wrong PID");
         return; /* error code on OBC */
     }
@@ -226,7 +230,7 @@ static void sFrameRecv(unstuffed_ax25_packet_t *unstuffedPacket, packed_rs_packe
         return; /* error code on OBC */
     }
     uint8_t controlBytes[AX25_CONTROL_BYTES] = {unstuffedPacket->data[AX25_ADDRESS_BYTES + 1], \
-                                                unstuffedPacket->data[AX25_ADDRESS_BYTES + 2]}
+                                                unstuffedPacket->data[AX25_ADDRESS_BYTES + 2]};
     sFrameResponseFns[controlBytes[0]](controlBytes);
 }
 
@@ -257,7 +261,7 @@ static bool fcsCheck(const uint8_t* data, uint16_t fcs) {
 }
 
 static void fcsCalculate(const uint8_t* data, uint16_t *calculatedFcs) {
-    uint16_t *calculatedFcs = 0xFFFF;  // Initial calculatedFcs value
+    *calculatedFcs = 0xFFFF;  // Initial calculatedFcs value
 
     for (uint16_t i = 0; i < (AX25_MINIMUM_PKT_LEN - AX25_FCS_BYTES - AX25_END_FLAG_BYTES); ++i) {
         *calculatedFcs ^= (uint16_t)data[i] << 8;
