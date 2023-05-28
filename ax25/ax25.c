@@ -1,7 +1,6 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <stdio.h>
-// for testing purposes only
 #include <string.h>
 
 #define AX25_START_FLAG_BYTES 1
