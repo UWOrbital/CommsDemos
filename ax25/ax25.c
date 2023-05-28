@@ -480,6 +480,7 @@ void ax25Send(packed_rs_packet_t *rsData, packed_ax25_packet_t *ax25Data, ax25_a
     bit_stuffing(ax25PacketUnstuffed, ax25Data);
     ax25Data->data[ax25Data->length - 1] = AX25_FLAG;
     ax25Data->data[0] = AX25_FLAG;
+    ++pktSentNum;
 }
 
 void ax25SendGroundStation(packed_rs_packet_t *rsData, packed_ax25_packet_t *ax25Data, ax25_addr_t* srcAddress) {
@@ -516,4 +517,5 @@ void ax25SendGroundStation(packed_rs_packet_t *rsData, packed_ax25_packet_t *ax2
     bit_stuffing(ax25PacketUnstuffed, ax25Data);
     ax25Data->data[ax25Data->length - 1] = AX25_FLAG;
     ax25Data->data[0] = AX25_FLAG;
+    ++pktSentNum;
 }
