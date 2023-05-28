@@ -38,13 +38,6 @@
 #define AX25_CUBESAT_CALLSIGN_BYTE_5 0xFFU
 #define AX25_CUBESAT_CALLSIGN_BYTE_6 0xFFU
 #define AX25_CUBESAT_CALLSIGN_BYTE_7 0xFFU
-static const uint8_t cubesatCallsign[AX25_DEST_ADDR_BYTES]= {AX25_CUBESAT_CALLSIGN_BYTE_1, \
-                                                             AX25_CUBESAT_CALLSIGN_BYTE_2, \
-                                                             AX25_CUBESAT_CALLSIGN_BYTE_3, \
-                                                             AX25_CUBESAT_CALLSIGN_BYTE_4, \
-                                                             AX25_CUBESAT_CALLSIGN_BYTE_5, \
-                                                             AX25_CUBESAT_CALLSIGN_BYTE_6, \
-                                                             AX25_CUBESAT_CALLSIGN_BYTE_7};
 
 #define AX25_S_FRAME_RR_CONTROL 0x01U
 #define AX25_S_FRAME_RNR_CONTROL 0x05U
@@ -65,11 +58,23 @@ typedef struct {
     uint8_t data[RS_ENCODED_SIZE];
 } packed_rs_packet_t;
 
+typedef struct {
+    uint8_t data[AX25_DEST_ADDR_BYTES];
+    uint8_t length;
+} ax25_addr_t;
+
 typedef void (*s_frame_func_t)(uint8_t*);
 
 static uint8_t pktSentNum = 1;
 static uint8_t pktReceiveNum = 1;
-
+static const ax25_addr_t cubesatCallsign = { .data = {AX25_CUBESAT_CALLSIGN_BYTE_1, \
+                                                      AX25_CUBESAT_CALLSIGN_BYTE_2, \
+                                                      AX25_CUBESAT_CALLSIGN_BYTE_3, \
+                                                      AX25_CUBESAT_CALLSIGN_BYTE_4, \
+                                                      AX25_CUBESAT_CALLSIGN_BYTE_5, \
+                                                      AX25_CUBESAT_CALLSIGN_BYTE_6, \
+                                                      AX25_CUBESAT_CALLSIGN_BYTE_7}, \
+                                                      .length = AX25_DEST_ADDR_BYTES};
 
 /**
  * @brief strips away the ax.25 headers from a received packet
@@ -80,6 +85,21 @@ static uint8_t pktReceiveNum = 1;
  * @return obc_error_code_t - whether or not the ax.25 headers were successfully stripped
 */
 void ax25Recv(packed_ax25_packet_t *ax25Data, packed_rs_packet_t *rsData);
+
+/**
+ * @brief adds ax.25 headers onto telemetry being downlinked and stores the length of the packet in az25Data->length
+ * 
+ * @param rsData reed solomon data that needs ax.25 headers added onto it
+ * @param ax25Data array to store the ax.25 frame
+ * @param destAddress address of the destination for the ax25 packet
+ * 
+ * @return obc_error_code_t - whether or not the ax.25 headers were successfully added
+*/
+void ax25Send(packed_rs_packet_t *rsData, packed_ax25_packet_t *ax25Data, ax25_addr_t* destAddress);
+
+/* MEANT FOR GROUND STATION NOT CUBESAT */
+/* USED FOR TESTING PURPOSES AND FOR GROUND STATION EVENTUALLY */
+void ax25SendGroundStation(packed_rs_packet_t *rsData, packed_ax25_packet_t *ax25Data, ax25_addr_t* srcAddress);
 
 /**
  * @brief performs bit unstuffing on a receive ax.25 packet
@@ -195,11 +215,6 @@ void ax25Recv(packed_ax25_packet_t *ax25Data, packed_rs_packet_t *rsData){
         printf("Did not unstuff properly\n");
         return; /* error code */
     }
-    printf("after unstuffing:\n");
-    for(uint16_t i = 0; i < AX25_MINIMUM_PKT_LEN; ++i){
-        printf("%x ", unstuffedPacket.data[i]);
-    }
-    printf("\n");
 
     // Check FCS
     uint16_t fcs = unstuffedPacket.data[AX25_INFO_BYTES + \
@@ -263,20 +278,16 @@ static void ax25Unstuff(const packed_ax25_packet_t* packet, unstuffed_ax25_packe
             unstuffedBitLength++;
         }
     }
-    printf("unstuffedBitLength/8 is %u\n", unstuffedBitLength/8);
-    printf("AX25_MINIMUM_PKT_LEN is %u\n", AX25_MINIMUM_PKT_LEN);
     // Add last flag
     unstuffedPacket->data[AX25_MINIMUM_PKT_LEN - 1] = AX25_FLAG;
     unstuffedBitLength += 8;
 
-    // unstuffedLength = (unstuffedBitLength + 7) / 8; // convert bits to bytes, rounding up
-    unstuffedPacket->length = (unstuffedBitLength+7)/8;
-
-    printf("length is %u\n", unstuffedPacket->length);
+    // convert bits to bytes, rounding up
+    unstuffedPacket->length = (unstuffedBitLength + 7)/8;
 }
 
 static void iFrameRecv(unstuffed_ax25_packet_t *unstuffedPacket, packed_rs_packet_t *rsData){
-    if(memcmp(unstuffedPacket->data + AX25_START_FLAG_BYTES, cubesatCallsign, AX25_DEST_ADDR_BYTES) != 0){
+    if(memcmp(unstuffedPacket->data + AX25_START_FLAG_BYTES, cubesatCallsign.data, AX25_DEST_ADDR_BYTES) != 0){
         printf("invalid destination address");
         return; /* error code on OBC */
     }
@@ -308,7 +319,7 @@ static void iFrameRecv(unstuffed_ax25_packet_t *unstuffedPacket, packed_rs_packe
 }
 
 static void sFrameRecv(unstuffed_ax25_packet_t *unstuffedPacket, packed_rs_packet_t *rsData){
-    if(memcmp(unstuffedPacket->data + AX25_START_FLAG_BYTES, cubesatCallsign, AX25_DEST_ADDR_BYTES) != 0){
+    if(memcmp(unstuffedPacket->data + AX25_START_FLAG_BYTES, cubesatCallsign.data, AX25_DEST_ADDR_BYTES) != 0){
         printf("invalid destination address");
         return; /* error code on OBC */
     }
@@ -326,7 +337,6 @@ static bool fcsCheck(const uint8_t* data, uint16_t fcs) {
             reverse_num |= 1 << ((sizeof(fcs)*8 - 1) - i);
     }
     fcs = reverse_num;
-    printf("fcs is %x\n", fcs);
     uint16_t calculatedFcs = 0xFFFF;  // Initial calculatedFcs value
 
     for (uint16_t i = 0; i < (AX25_MINIMUM_PKT_LEN - AX25_FCS_BYTES - AX25_END_FLAG_BYTES); ++i) {
@@ -342,7 +352,6 @@ static bool fcsCheck(const uint8_t* data, uint16_t fcs) {
     }
 
     calculatedFcs ^= 0xFFFF;  // XOR with 0xFFFF at the end
-    printf("CRC calc is %x\n", calculatedFcs);
     if(fcs != calculatedFcs){
         return false;
     }
@@ -389,39 +398,15 @@ void ax25HandleSelectiveReject(uint8_t *controlBytes){
 }
 
 int main(){
-    // hardcode a mock ax25 packet received for testing
-    packed_ax25_packet_t stuffedPacket = {.data = {0}};
-    uint8_t ax25Packet[AX25_MINIMUM_PKT_LEN] = {0};
-    ax25Packet[0] = AX25_FLAG;
-    ax25Packet[AX25_MINIMUM_PKT_LEN - 1] = AX25_FLAG;
-    memcpy(ax25Packet + AX25_START_FLAG_BYTES, cubesatCallsign, AX25_DEST_ADDR_BYTES);
-    ax25Packet[AX25_START_FLAG_BYTES + AX25_ADDRESS_BYTES] = 0x02;
-    ax25Packet[AX25_START_FLAG_BYTES + AX25_ADDRESS_BYTES + 1] = 0x02;
-    ax25Packet[AX25_START_FLAG_BYTES + AX25_ADDRESS_BYTES + AX25_CONTROL_BYTES] = AX25_PID;
-    memset(ax25Packet + AX25_START_FLAG_BYTES + AX25_ADDRESS_BYTES + AX25_CONTROL_BYTES + AX25_PID_BYTES, 0x8E, AX25_INFO_BYTES);
-    uint16_t fcs;
-    fcsCalculate(ax25Packet, &fcs);
-    printf("yo i just calculated %x\n", fcs);
-    ax25Packet[AX25_START_FLAG_BYTES + AX25_ADDRESS_BYTES + AX25_CONTROL_BYTES + AX25_PID_BYTES + AX25_INFO_BYTES] = (uint8_t)(fcs >> 8);
-    ax25Packet[AX25_START_FLAG_BYTES + AX25_ADDRESS_BYTES + AX25_CONTROL_BYTES + AX25_PID_BYTES + AX25_INFO_BYTES + 1] = (uint8_t)(fcs & 0xFF);
-    printf("before stuffing:\n");
-    for(uint16_t i = 0; i < AX25_MINIMUM_PKT_LEN; ++i){
-        printf( "%x ", ax25Packet[i]);
-    }
-    printf("\n");
-    bit_stuffing(ax25Packet, &stuffedPacket);
-    stuffedPacket.data[0] = AX25_FLAG;
-    stuffedPacket.data[stuffedPacket.length - 1] = AX25_FLAG;
-    for(uint16_t i = 0; i < stuffedPacket.length; ++i){
-        printf("%x ", stuffedPacket.data[i]);
-    }
-    printf("\n");
+    packed_rs_packet_t rsSendData;
+    packed_ax25_packet_t stuffedPacket;
+    char str[] = "Lorem ipsum dolor sit amet, consectetuer adipiscing elit. Aenean commodo ligula eget dolor. Aenean massa. Cum sociis natoque penatibus et magnis dis parturient montes, nascetur ridiculus mus. Donec quam felis, ultricies nec, pellentesque eu, pretium quis,";
+    strcpy(rsSendData.data, str);
+    ax25_addr_t src = {.data = {0}, .length = AX25_SRC_ADDR_BYTES};
+    ax25SendGroundStation(&rsSendData, &stuffedPacket, &src);
     packed_rs_packet_t rsData;
     ax25Recv(&stuffedPacket, &rsData);
-    for(uint16_t i = 0; i < AX25_INFO_BYTES; ++i){
-        printf("%x ", rsData.data[i]);
-    }
-    printf("\n");
+    printf("%s\n", rsData.data);
 }
 
 /* bit stuffing function for ax25 NOT MEANT FOR RECV */
@@ -449,5 +434,86 @@ void bit_stuffing(uint8_t *RAW_DATA, packed_ax25_packet_t *STUFFED_DATA) {
         }
     }
     STUFFED_DATA->length = ((STUFFED_OFFSET+7)/8) + 1;
-    printf("bitstuffing: length is %u\n", STUFFED_DATA->length);
+}
+
+/**
+ * @brief adds ax.25 headers onto telemetry being downlinked and stores the length of the packet in az25Data->length
+ * 
+ * @param rsData reed solomon data that needs ax.25 headers added onto it
+ * @param ax25Data array to store the ax.25 frame
+ * @param destAddress address of the destination for the ax25 packet
+ * 
+ * @return obc_error_code_t - whether or not the ax.25 headers were successfully added
+*/
+void ax25Send(packed_rs_packet_t *rsData, packed_ax25_packet_t *ax25Data, ax25_addr_t* destAddress) {
+    if (rsData == NULL) {
+        return; /* error code on OBC */
+    }
+
+    if (ax25Data == NULL) {
+        return; /* error code on OBC */
+    }
+
+    if (destAddress == NULL) {
+        return; /* error code on OBC */
+    }
+    if (destAddress->length < AX25_DEST_ADDR_BYTES){
+        return; /* error code on OBC */
+    }
+
+    memset(ax25Data->data, 0, AX25_MAXIMUM_PKT_LEN);
+
+    uint8_t ax25PacketUnstuffed[AX25_MINIMUM_PKT_LEN] = {0};
+
+    ax25PacketUnstuffed[0] = AX25_FLAG;
+    //ax25PacketUnstuffed[AX25_MINIMUM_PKT_LEN - 1] = AX25_FLAG;
+    memcpy(ax25PacketUnstuffed + AX25_START_FLAG_BYTES, destAddress->data, AX25_DEST_ADDR_BYTES);
+    memcpy(ax25PacketUnstuffed + AX25_START_FLAG_BYTES + AX25_DEST_ADDR_BYTES, cubesatCallsign.data, AX25_SRC_ADDR_BYTES);
+    ax25PacketUnstuffed[AX25_START_FLAG_BYTES + AX25_ADDRESS_BYTES] = (pktReceiveNum << 1);
+    ax25PacketUnstuffed[AX25_START_FLAG_BYTES + AX25_ADDRESS_BYTES + 1] = (pktSentNum << 1);
+    ax25PacketUnstuffed[AX25_START_FLAG_BYTES + AX25_ADDRESS_BYTES + AX25_CONTROL_BYTES] = AX25_PID;
+    memcpy(ax25PacketUnstuffed + AX25_START_FLAG_BYTES + AX25_ADDRESS_BYTES + AX25_CONTROL_BYTES + AX25_PID_BYTES, rsData->data, RS_ENCODED_SIZE);
+    uint16_t fcs;
+    fcsCalculate(ax25PacketUnstuffed, &fcs);
+    ax25PacketUnstuffed[AX25_START_FLAG_BYTES + AX25_ADDRESS_BYTES + AX25_CONTROL_BYTES + AX25_PID_BYTES + AX25_INFO_BYTES] = (uint8_t)(fcs >> 8);
+    ax25PacketUnstuffed[AX25_START_FLAG_BYTES + AX25_ADDRESS_BYTES + AX25_CONTROL_BYTES + AX25_PID_BYTES + AX25_INFO_BYTES + 1] = (uint8_t)(fcs & 0xFF);
+    bit_stuffing(ax25PacketUnstuffed, ax25Data);
+    ax25Data->data[ax25Data->length - 1] = AX25_FLAG;
+    ax25Data->data[0] = AX25_FLAG;
+}
+
+void ax25SendGroundStation(packed_rs_packet_t *rsData, packed_ax25_packet_t *ax25Data, ax25_addr_t* srcAddress) {
+    if (rsData == NULL) {
+        return; /* error code on OBC */
+    }
+
+    if (ax25Data == NULL) {
+        return; /* error code on OBC */
+    }
+
+    if (srcAddress == NULL) {
+        return; /* error code on OBC */
+    }
+    if (srcAddress->length < AX25_DEST_ADDR_BYTES){
+        return; /* error code on OBC */
+    }
+
+    memset(ax25Data->data, 0, AX25_MAXIMUM_PKT_LEN);
+
+    uint8_t ax25PacketUnstuffed[AX25_MINIMUM_PKT_LEN] = {0};
+
+    ax25PacketUnstuffed[0] = AX25_FLAG;
+    memcpy(ax25PacketUnstuffed + AX25_START_FLAG_BYTES, cubesatCallsign.data, AX25_SRC_ADDR_BYTES);
+    memcpy(ax25PacketUnstuffed + AX25_START_FLAG_BYTES + AX25_DEST_ADDR_BYTES, srcAddress->data, AX25_DEST_ADDR_BYTES);
+    ax25PacketUnstuffed[AX25_START_FLAG_BYTES + AX25_ADDRESS_BYTES] = (pktReceiveNum << 1);
+    ax25PacketUnstuffed[AX25_START_FLAG_BYTES + AX25_ADDRESS_BYTES + 1] = (pktSentNum << 1);
+    ax25PacketUnstuffed[AX25_START_FLAG_BYTES + AX25_ADDRESS_BYTES + AX25_CONTROL_BYTES] = AX25_PID;
+    memcpy(ax25PacketUnstuffed + AX25_START_FLAG_BYTES + AX25_ADDRESS_BYTES + AX25_CONTROL_BYTES + AX25_PID_BYTES, rsData->data, RS_ENCODED_SIZE);
+    uint16_t fcs;
+    fcsCalculate(ax25PacketUnstuffed, &fcs);
+    ax25PacketUnstuffed[AX25_START_FLAG_BYTES + AX25_ADDRESS_BYTES + AX25_CONTROL_BYTES + AX25_PID_BYTES + AX25_INFO_BYTES] = (uint8_t)(fcs >> 8);
+    ax25PacketUnstuffed[AX25_START_FLAG_BYTES + AX25_ADDRESS_BYTES + AX25_CONTROL_BYTES + AX25_PID_BYTES + AX25_INFO_BYTES + 1] = (uint8_t)(fcs & 0xFF);
+    bit_stuffing(ax25PacketUnstuffed, ax25Data);
+    ax25Data->data[ax25Data->length - 1] = AX25_FLAG;
+    ax25Data->data[0] = AX25_FLAG;
 }
